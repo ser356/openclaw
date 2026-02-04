@@ -10,8 +10,9 @@ import { listDeliverableMessageChannels } from "../utils/message-channel.js";
  * - "full": All sections (default, for main agent)
  * - "minimal": Reduced sections (Tooling, Workspace, Runtime) - used for subagents
  * - "none": Just basic identity line, no sections
+ * - "local": Ultra-compact prompt optimized for local/smaller models (e.g., glm-4.6v-flash)
  */
-export type PromptMode = "full" | "minimal" | "none";
+export type PromptMode = "full" | "minimal" | "none" | "local";
 
 function buildSkillsSection(params: {
   skillsPrompt?: string;
@@ -374,6 +375,36 @@ export function buildAgentSystemPrompt(params: {
   // For "none" mode, return just the basic identity line
   if (promptMode === "none") {
     return "You are a personal assistant running inside OpenClaw.";
+  }
+
+  // For "local" mode, return a compact prompt optimized for smaller local models
+  if (promptMode === "local") {
+    const localLines = [
+      "You are a helpful assistant.",
+      "",
+      "## Tools",
+      toolLines.length > 0 ? toolLines.join("\n") : "No tools available.",
+      "",
+      `Working directory: ${params.workspaceDir}`,
+    ];
+
+    if (userTimezone) {
+      localLines.push(`Timezone: ${userTimezone}`);
+    }
+
+    if (extraSystemPrompt) {
+      localLines.push("", "## Context", extraSystemPrompt);
+    }
+
+    const contextFiles = params.contextFiles ?? [];
+    if (contextFiles.length > 0) {
+      localLines.push("", "## Project Files");
+      for (const file of contextFiles) {
+        localLines.push(`### ${file.path}`, file.content);
+      }
+    }
+
+    return localLines.filter(Boolean).join("\n");
   }
 
   const lines = [

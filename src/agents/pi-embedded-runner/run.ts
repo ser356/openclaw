@@ -100,7 +100,7 @@ export async function runEmbeddedPiAgent(
         (params.config?.agents?.defaults?.model?.fallbacks?.length ?? 0) > 0;
       await ensureOpenClawModelsJson(params.config, agentDir);
 
-      const { model, error, authStorage, modelRegistry } = resolveModel(
+      const { model, error, authStorage, modelRegistry, modelPromptMode } = resolveModel(
         provider,
         modelId,
         agentDir,
@@ -344,6 +344,7 @@ export async function runEmbeddedPiAgent(
             thinkLevel,
             verboseLevel: params.verboseLevel,
             reasoningLevel: params.reasoningLevel,
+            modelPromptMode,
             toolResultFormat: resolvedToolResultFormat,
             execOverrides: params.execOverrides,
             bashElevated: params.bashElevated,

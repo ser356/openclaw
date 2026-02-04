@@ -142,9 +142,49 @@ vLLM, LiteLLM, OAI-proxy, or custom gateways work if they expose an OpenAI-style
 
 Keep `models.mode: "merge"` so hosted models stay available as fallbacks.
 
+## Compact system prompts for smaller models
+
+For smaller local models (e.g., `glm-4.6v-flash`, quantized models, or models with limited context), OpenClaw's default system prompt may be too large. Use `promptMode: "local"` to get an ultra-compact prompt:
+
+```json5
+{
+  models: {
+    providers: {
+      local: {
+        baseUrl: "http://127.0.0.1:8000/v1",
+        apiKey: "sk-local",
+        api: "openai-responses",
+        models: [
+          {
+            id: "glm-4.6v-flash",
+            name: "GLM 4.6V Flash",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 32000,
+            maxTokens: 4096,
+            promptMode: "local", // Use compact system prompt
+          },
+        ],
+      },
+    },
+  },
+}
+```
+
+The `local` prompt mode includes only:
+
+- Basic assistant identity
+- Available tools list
+- Working directory
+- Timezone
+- Project context files (SOUL.md, etc.)
+
+This reduces the system prompt from ~2000+ tokens to ~200-500 tokens, leaving more room for conversation history.
+
 ## Troubleshooting
 
 - Gateway can reach the proxy? `curl http://127.0.0.1:1234/v1/models`.
-- LM Studio model unloaded? Reload; cold start is a common “hanging” cause.
+- LM Studio model unloaded? Reload; cold start is a common "hanging" cause.
 - Context errors? Lower `contextWindow` or raise your server limit.
 - Safety: local models skip provider-side filters; keep agents narrow and compaction on to limit prompt injection blast radius.

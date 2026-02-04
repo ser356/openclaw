@@ -119,7 +119,7 @@ export async function compactEmbeddedPiSessionDirect(
   const modelId = (params.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
   const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
   await ensureOpenClawModelsJson(params.config, agentDir);
-  const { model, error, authStorage, modelRegistry } = resolveModel(
+  const { model, error, authStorage, modelRegistry, modelPromptMode } = resolveModel(
     provider,
     modelId,
     agentDir,
@@ -319,7 +319,10 @@ export async function compactEmbeddedPiSessionDirect(
       config: params.config,
     });
     const isDefaultAgent = sessionAgentId === defaultAgentId;
-    const promptMode = isSubagentSessionKey(params.sessionKey) ? "minimal" : "full";
+    // Use model's promptMode if specified (e.g., "local" for smaller models),
+    // otherwise fall back to session-based logic (minimal for subagents, full otherwise)
+    const promptMode =
+      modelPromptMode ?? (isSubagentSessionKey(params.sessionKey) ? "minimal" : "full");
     const docsPath = await resolveOpenClawDocsPath({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],
