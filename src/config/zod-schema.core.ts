@@ -22,6 +22,12 @@ export const ModelCompatSchema = z
   .strict()
   .optional();
 
+export const ModelPromptModeSchema = z.union([
+  z.literal("full"),
+  z.literal("minimal"),
+  z.literal("local"),
+]);
+
 export const ModelDefinitionSchema = z
   .object({
     id: z.string().min(1),
@@ -42,6 +48,7 @@ export const ModelDefinitionSchema = z
     maxTokens: z.number().positive().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     compat: ModelCompatSchema,
+    promptMode: ModelPromptModeSchema.optional(),
   })
   .strict();
 
