@@ -141,7 +141,7 @@ export async function compactEmbeddedPiSessionDirect(
     });
 
     if (!apiKeyInfo.apiKey) {
-      if (apiKeyInfo.mode !== "aws-sdk") {
+      if (apiKeyInfo.mode !== "aws-sdk" && apiKeyInfo.mode !== "none") {
         throw new Error(
           `No API key resolved for provider "${model.provider}" (auth mode: ${apiKeyInfo.mode}).`,
         );
@@ -237,125 +237,149 @@ export async function compactEmbeddedPiSessionDirect(
     });
     const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider });
     logToolSchemasForGoogle({ tools, provider });
-    const machineName = await getMachineDisplayName();
-    const runtimeChannel = normalizeMessageChannel(params.messageChannel ?? params.messageProvider);
-    let runtimeCapabilities = runtimeChannel
-      ? (resolveChannelCapabilities({
-          cfg: params.config,
-          channel: runtimeChannel,
-          accountId: params.agentAccountId,
-        }) ?? [])
-      : undefined;
-    if (runtimeChannel === "telegram" && params.config) {
-      const inlineButtonsScope = resolveTelegramInlineButtonsScope({
-        cfg: params.config,
-        accountId: params.agentAccountId ?? undefined,
-      });
-      if (inlineButtonsScope !== "off") {
-        if (!runtimeCapabilities) {
-          runtimeCapabilities = [];
-        }
-        if (
-          !runtimeCapabilities.some((cap) => String(cap).trim().toLowerCase() === "inlinebuttons")
-        ) {
-          runtimeCapabilities.push("inlineButtons");
-        }
-      }
-    }
-    const reactionGuidance =
-      runtimeChannel && params.config
-        ? (() => {
-            if (runtimeChannel === "telegram") {
-              const resolved = resolveTelegramReactionLevel({
-                cfg: params.config,
-                accountId: params.agentAccountId ?? undefined,
-              });
-              const level = resolved.agentReactionGuidance;
-              return level ? { level, channel: "Telegram" } : undefined;
-            }
-            if (runtimeChannel === "signal") {
-              const resolved = resolveSignalReactionLevel({
-                cfg: params.config,
-                accountId: params.agentAccountId ?? undefined,
-              });
-              const level = resolved.agentReactionGuidance;
-              return level ? { level, channel: "Signal" } : undefined;
-            }
-            return undefined;
-          })()
-        : undefined;
-    // Resolve channel-specific message actions for system prompt
-    const channelActions = runtimeChannel
-      ? listChannelSupportedActions({
-          cfg: params.config,
-          channel: runtimeChannel,
-        })
-      : undefined;
-    const messageToolHints = runtimeChannel
-      ? resolveChannelMessageToolHints({
-          cfg: params.config,
-          channel: runtimeChannel,
-          accountId: params.agentAccountId,
-        })
-      : undefined;
+    // Resolve prompt mode early — local models skip all channel/sandbox/reaction scaffolding.
+    const promptMode =
+      modelPromptMode ?? (isSubagentSessionKey(params.sessionKey) ? "minimal" : "full");
 
-    const runtimeInfo = {
-      host: machineName,
-      os: `${os.type()} ${os.release()}`,
-      arch: os.arch(),
-      node: process.version,
-      model: `${provider}/${modelId}`,
-      channel: runtimeChannel,
-      capabilities: runtimeCapabilities,
-      channelActions,
-    };
-    const sandboxInfo = buildEmbeddedSandboxInfo(sandbox, params.bashElevated);
-    const reasoningTagHint = isReasoningTagProvider(provider);
     const userTimezone = resolveUserTimezone(params.config?.agents?.defaults?.userTimezone);
     const userTimeFormat = resolveUserTimeFormat(params.config?.agents?.defaults?.timeFormat);
     const userTime = formatUserTime(new Date(), userTimezone, userTimeFormat);
-    const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
-      sessionKey: params.sessionKey,
-      config: params.config,
-    });
-    const isDefaultAgent = sessionAgentId === defaultAgentId;
-    // Use model's promptMode if specified (e.g., "local" for smaller models),
-    // otherwise fall back to session-based logic (minimal for subagents, full otherwise)
-    const promptMode =
-      modelPromptMode ?? (isSubagentSessionKey(params.sessionKey) ? "minimal" : "full");
-    const docsPath = await resolveOpenClawDocsPath({
-      workspaceDir: effectiveWorkspace,
-      argv1: process.argv[1],
-      cwd: process.cwd(),
-      moduleUrl: import.meta.url,
-    });
-    const ttsHint = params.config ? buildTtsSystemPromptHint(params.config) : undefined;
-    const appendPrompt = buildEmbeddedSystemPrompt({
-      workspaceDir: effectiveWorkspace,
-      defaultThinkLevel: params.thinkLevel,
-      reasoningLevel: params.reasoningLevel ?? "off",
-      extraSystemPrompt: params.extraSystemPrompt,
-      ownerNumbers: params.ownerNumbers,
-      reasoningTagHint,
-      heartbeatPrompt: isDefaultAgent
-        ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
-        : undefined,
-      skillsPrompt,
-      docsPath: docsPath ?? undefined,
-      ttsHint,
-      promptMode,
-      runtimeInfo,
-      reactionGuidance,
-      messageToolHints,
-      sandboxInfo,
-      tools,
-      modelAliasLines: buildModelAliasLines(params.config),
-      userTimezone,
-      userTime,
-      userTimeFormat,
-      contextFiles,
-      memoryCitationsMode: params.config?.memory?.citations,
-    });
+
+    let appendPrompt: string;
+    if (promptMode === "local") {
+      // Fast path: no channel, sandbox, docs, skills, heartbeat, or reaction resolution.
+      appendPrompt = buildEmbeddedSystemPrompt({
+        workspaceDir: effectiveWorkspace,
+        reasoningLevel: "off",
+        extraSystemPrompt: params.extraSystemPrompt,
+        reasoningTagHint: false,
+        promptMode: "local",
+        runtimeInfo: {
+          host: os.hostname(),
+          os: `${os.type()} ${os.release()}`,
+          arch: os.arch(),
+          node: process.version,
+          model: `${provider}/${modelId}`,
+        },
+        tools,
+        modelAliasLines: [],
+        userTimezone,
+        userTime,
+        userTimeFormat,
+        contextFiles,
+      });
+    } else {
+      // Full path: resolve everything the prompt builder needs.
+      const machineName = await getMachineDisplayName();
+      const runtimeChannel = normalizeMessageChannel(
+        params.messageChannel ?? params.messageProvider,
+      );
+      let runtimeCapabilities = runtimeChannel
+        ? (resolveChannelCapabilities({
+            cfg: params.config,
+            channel: runtimeChannel,
+            accountId: params.agentAccountId,
+          }) ?? [])
+        : undefined;
+      if (runtimeChannel === "telegram" && params.config) {
+        const inlineButtonsScope = resolveTelegramInlineButtonsScope({
+          cfg: params.config,
+          accountId: params.agentAccountId ?? undefined,
+        });
+        if (inlineButtonsScope !== "off") {
+          if (!runtimeCapabilities) {
+            runtimeCapabilities = [];
+          }
+          if (
+            !runtimeCapabilities.some((cap) => String(cap).trim().toLowerCase() === "inlinebuttons")
+          ) {
+            runtimeCapabilities.push("inlineButtons");
+          }
+        }
+      }
+      const reactionGuidance =
+        runtimeChannel && params.config
+          ? (() => {
+              if (runtimeChannel === "telegram") {
+                const resolved = resolveTelegramReactionLevel({
+                  cfg: params.config,
+                  accountId: params.agentAccountId ?? undefined,
+                });
+                const level = resolved.agentReactionGuidance;
+                return level ? { level, channel: "Telegram" } : undefined;
+              }
+              if (runtimeChannel === "signal") {
+                const resolved = resolveSignalReactionLevel({
+                  cfg: params.config,
+                  accountId: params.agentAccountId ?? undefined,
+                });
+                const level = resolved.agentReactionGuidance;
+                return level ? { level, channel: "Signal" } : undefined;
+              }
+              return undefined;
+            })()
+          : undefined;
+      const channelActions = runtimeChannel
+        ? listChannelSupportedActions({ cfg: params.config, channel: runtimeChannel })
+        : undefined;
+      const messageToolHints = runtimeChannel
+        ? resolveChannelMessageToolHints({
+            cfg: params.config,
+            channel: runtimeChannel,
+            accountId: params.agentAccountId,
+          })
+        : undefined;
+      const runtimeInfo = {
+        host: machineName,
+        os: `${os.type()} ${os.release()}`,
+        arch: os.arch(),
+        node: process.version,
+        model: `${provider}/${modelId}`,
+        channel: runtimeChannel,
+        capabilities: runtimeCapabilities,
+        channelActions,
+      };
+      const sandboxInfo = buildEmbeddedSandboxInfo(sandbox, params.bashElevated);
+      const reasoningTagHint = isReasoningTagProvider(provider);
+      const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
+        sessionKey: params.sessionKey,
+        config: params.config,
+      });
+      const isDefaultAgent = sessionAgentId === defaultAgentId;
+      const docsPath = await resolveOpenClawDocsPath({
+        workspaceDir: effectiveWorkspace,
+        argv1: process.argv[1],
+        cwd: process.cwd(),
+        moduleUrl: import.meta.url,
+      });
+      const ttsHint = params.config ? buildTtsSystemPromptHint(params.config) : undefined;
+      appendPrompt = buildEmbeddedSystemPrompt({
+        workspaceDir: effectiveWorkspace,
+        defaultThinkLevel: params.thinkLevel,
+        reasoningLevel: params.reasoningLevel ?? "off",
+        extraSystemPrompt: params.extraSystemPrompt,
+        ownerNumbers: params.ownerNumbers,
+        reasoningTagHint,
+        heartbeatPrompt: isDefaultAgent
+          ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
+          : undefined,
+        skillsPrompt,
+        docsPath: docsPath ?? undefined,
+        ttsHint,
+        promptMode,
+        runtimeInfo,
+        reactionGuidance,
+        messageToolHints,
+        sandboxInfo,
+        tools,
+        modelAliasLines: buildModelAliasLines(params.config),
+        userTimezone,
+        userTime,
+        userTimeFormat,
+        contextFiles,
+        memoryCitationsMode: params.config?.memory?.citations,
+      });
+    }
     const systemPromptOverride = createSystemPromptOverride(appendPrompt);
 
     const sessionLock = await acquireSessionWriteLock({

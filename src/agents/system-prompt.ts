@@ -377,34 +377,47 @@ export function buildAgentSystemPrompt(params: {
     return "You are a personal assistant running inside OpenClaw.";
   }
 
-  // For "local" mode, return a compact prompt optimized for smaller local models
+  // "local" mode — ultra-compact prompt for small local models (e.g. Qwen2.5-3B-Instruct-MLX).
+  // Budget: ≤2 500 tokens (~8 000 chars) so the model keeps most of its context free for
+  // conversation history.  Only identity + tool list + workspace + context files.
   if (promptMode === "local") {
     const localLines = [
-      "You are a helpful assistant.",
+      "You are a helpful local assistant. Use the available tools to help the user.",
       "",
-      "## Tools",
-      toolLines.length > 0 ? toolLines.join("\n") : "No tools available.",
-      "",
-      `Working directory: ${params.workspaceDir}`,
     ];
 
-    if (userTimezone) {
-      localLines.push(`Timezone: ${userTimezone}`);
+    // Flat tool list — no per-tool descriptions beyond the name; keeps token count minimal.
+    if (toolLines.length > 0) {
+      localLines.push("Available tools:", ...toolLines, "");
     }
 
-    if (extraSystemPrompt) {
-      localLines.push("", "## Context", extraSystemPrompt);
+    // Workspace + time on one line each.
+    localLines.push(`Working directory: ${params.workspaceDir}`);
+    if (userTimezone && params.userTime) {
+      localLines.push(`Current time: ${params.userTime} (${userTimezone})`);
     }
 
+    // Context files — tight 6 000-char budget; stop as soon as it fills.
     const contextFiles = params.contextFiles ?? [];
     if (contextFiles.length > 0) {
-      localLines.push("", "## Project Files");
+      localLines.push("", "Project context:");
+      let budget = 6000;
       for (const file of contextFiles) {
-        localLines.push(`### ${file.path}`, file.content);
+        if (budget <= 0) {
+          break;
+        }
+        const header = `--- ${file.path} ---`;
+        const content = file.content.slice(0, budget);
+        localLines.push(header, content);
+        budget -= header.length + content.length + 2;
       }
     }
 
-    return localLines.filter(Boolean).join("\n");
+    if (extraSystemPrompt) {
+      localLines.push("", extraSystemPrompt);
+    }
+
+    return localLines.join("\n");
   }
 
   const lines = [

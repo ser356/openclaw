@@ -177,10 +177,56 @@ The `local` prompt mode includes only:
 - Basic assistant identity
 - Available tools list
 - Working directory
-- Timezone
-- Project context files (SOUL.md, etc.)
+- Current time (when timezone is configured)
+- Project context files (SOUL.md, etc.) — capped at ~6 000 chars
 
-This reduces the system prompt from ~2000+ tokens to ~200-500 tokens, leaving more room for conversation history.
+This keeps the system prompt under ~2 500 tokens, leaving the majority of the context window free for conversation history.
+
+### Qwen2.5-3B-Instruct-MLX (no API key, KV-cache quantization)
+
+A complete, zero-key config for running Qwen2.5-3B-Instruct via LM Studio with MLX on Apple Silicon. Set `auth: "none"` so OpenClaw skips all credential resolution. `contextWindow: 32768` matches the model's native limit — LM Studio's KV Cache Quantization (8-bit, accuracy group strategy, threshold 5 000 tokens) keeps actual VRAM usage low without OpenClaw needing to know.
+
+```json5
+{
+  agents: {
+    defaults: {
+      model: { primary: "lmstudio/qwen2.5-3b-instruct" },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      lmstudio: {
+        baseUrl: "http://127.0.0.1:1234/v1",
+        auth: "none", // local server — no API key needed
+        api: "openai-responses",
+        models: [
+          {
+            id: "qwen2.5-3b-instruct",
+            name: "Qwen2.5 3B Instruct (MLX)",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 32768, // model native max; KV quant keeps VRAM in check
+            maxTokens: 4096,
+            promptMode: "local", // ultra-compact system prompt for 3 B param model
+          },
+        ],
+      },
+    },
+  },
+}
+```
+
+**LM Studio settings that match this config** (Load tab → Advanced):
+
+| Setting                           | Value                                           |
+| --------------------------------- | ----------------------------------------------- |
+| Context Length                    | 4096 (ignored when KV Cache Quantization is on) |
+| KV Cache Quantization             | Enabled                                         |
+| KV cache quantization bits        | 8                                               |
+| Group size strategy               | Accuracy                                        |
+| Start quantizing when ctx reaches | 5000                                            |
 
 ## Troubleshooting
 

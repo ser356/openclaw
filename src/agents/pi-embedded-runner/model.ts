@@ -36,7 +36,8 @@ export function buildInlineProviderModels(
   });
 }
 
-export function buildModelAliasLines(cfg?: OpenClawConfig) {
+/** Alias lines are only needed for full/minimal prompts; skip entirely in local mode. */
+export function buildModelAliasLines(cfg?: OpenClawConfig): string[] {
   const models = cfg?.agents?.defaults?.models ?? {};
   const entries: Array<{ alias: string; model: string }> = [];
   for (const [keyRaw, entryRaw] of Object.entries(models)) {
@@ -90,7 +91,6 @@ export function resolveModel(
     }
     const providerCfg = providers[provider];
     if (providerCfg || modelId.startsWith("mock-")) {
-      // Try to find promptMode from the first matching model in provider config
       const modelCfg = providerCfg?.models?.find((m) => m.id === modelId);
       const fallbackModel: Model<Api> = normalizeModelCompat({
         id: modelId,
@@ -101,12 +101,8 @@ export function resolveModel(
         reasoning: false,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow:
-          modelCfg?.contextWindow ??
-          providerCfg?.models?.[0]?.contextWindow ??
-          DEFAULT_CONTEXT_TOKENS,
-        maxTokens:
-          modelCfg?.maxTokens ?? providerCfg?.models?.[0]?.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
+        contextWindow: modelCfg?.contextWindow ?? DEFAULT_CONTEXT_TOKENS,
+        maxTokens: modelCfg?.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
       } as Model<Api>);
       return {
         model: fallbackModel,
@@ -121,5 +117,14 @@ export function resolveModel(
       modelRegistry,
     };
   }
-  return { model: normalizeModelCompat(model), authStorage, modelRegistry };
+  // Check if there's a promptMode override in config for this registry model
+  const providers = cfg?.models?.providers ?? {};
+  const providerCfg = providers[provider];
+  const modelCfg = providerCfg?.models?.find((m) => m.id === modelId);
+  return {
+    model: normalizeModelCompat(model),
+    authStorage,
+    modelRegistry,
+    modelPromptMode: modelCfg?.promptMode,
+  };
 }
