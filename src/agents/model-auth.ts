@@ -58,7 +58,13 @@ function resolveProviderAuthOverride(
 ): ModelProviderAuthMode | undefined {
   const entry = resolveProviderConfig(cfg, provider);
   const auth = entry?.auth;
-  if (auth === "api-key" || auth === "aws-sdk" || auth === "oauth" || auth === "token") {
+  if (
+    auth === "api-key" ||
+    auth === "aws-sdk" ||
+    auth === "oauth" ||
+    auth === "token" ||
+    auth === "none"
+  ) {
     return auth;
   }
   return undefined;
@@ -126,7 +132,7 @@ export type ResolvedProviderAuth = {
   apiKey?: string;
   profileId?: string;
   source: string;
-  mode: "api-key" | "oauth" | "token" | "aws-sdk";
+  mode: "api-key" | "oauth" | "token" | "aws-sdk" | "none";
 };
 
 export async function resolveApiKeyForProvider(params: {
@@ -162,6 +168,11 @@ export async function resolveApiKeyForProvider(params: {
   const authOverride = resolveProviderAuthOverride(cfg, provider);
   if (authOverride === "aws-sdk") {
     return resolveAwsSdkAuthInfo();
+  }
+
+  // For providers with auth: "none", use a dummy key (pi-ai requires non-empty key)
+  if (authOverride === "none") {
+    return { apiKey: "not-needed", source: "none", mode: "none" };
   }
 
   const order = resolveAuthProfileOrder({
@@ -386,6 +397,10 @@ export function requireApiKey(auth: ResolvedProviderAuth, provider: string): str
   const key = auth.apiKey?.trim();
   if (key) {
     return key;
+  }
+  // Allow providers with auth: "none" to proceed with a dummy key
+  if (auth.mode === "none") {
+    return "not-needed";
   }
   throw new Error(`No API key resolved for provider "${provider}" (auth mode: ${auth.mode}).`);
 }

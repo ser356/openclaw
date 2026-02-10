@@ -54,6 +54,8 @@ export type EmbeddedRunAttemptParams = {
   thinkLevel: ThinkLevel;
   verboseLevel?: VerboseLevel;
   reasoningLevel?: ReasoningLevel;
+  /** Prompt mode from model config (for local/smaller models). */
+  modelPromptMode?: "full" | "minimal" | "local";
   toolResultFormat?: ToolResultFormat;
   execOverrides?: Pick<ExecToolDefaults, "host" | "security" | "ask" | "node">;
   bashElevated?: ExecElevatedDefaults;

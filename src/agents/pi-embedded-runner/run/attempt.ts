@@ -333,7 +333,10 @@ export async function runEmbeddedAttempt(
       },
     });
     const isDefaultAgent = sessionAgentId === defaultAgentId;
-    const promptMode = isSubagentSessionKey(params.sessionKey) ? "minimal" : "full";
+    // Use model's promptMode if specified (e.g., "local" for smaller models),
+    // otherwise fall back to session-based logic (minimal for subagents, full otherwise)
+    const promptMode =
+      params.modelPromptMode ?? (isSubagentSessionKey(params.sessionKey) ? "minimal" : "full");
     const docsPath = await resolveOpenClawDocsPath({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],

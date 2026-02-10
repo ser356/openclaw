@@ -13,7 +13,9 @@ export type ModelCompatConfig = {
   maxTokensField?: "max_completion_tokens" | "max_tokens";
 };
 
-export type ModelProviderAuthMode = "api-key" | "aws-sdk" | "oauth" | "token";
+export type ModelProviderAuthMode = "api-key" | "aws-sdk" | "oauth" | "token" | "none";
+
+export type ModelPromptMode = "full" | "minimal" | "local";
 
 export type ModelDefinitionConfig = {
   id: string;
@@ -31,6 +33,13 @@ export type ModelDefinitionConfig = {
   maxTokens: number;
   headers?: Record<string, string>;
   compat?: ModelCompatConfig;
+  /**
+   * Controls which system prompt mode to use for this model.
+   * - "full": All sections (default)
+   * - "minimal": Reduced sections
+   * - "local": Ultra-compact prompt for smaller/local models (e.g., glm-4.6v-flash)
+   */
+  promptMode?: ModelPromptMode;
 };
 
 export type ModelProviderConfig = {

@@ -10,8 +10,9 @@ import { listDeliverableMessageChannels } from "../utils/message-channel.js";
  * - "full": All sections (default, for main agent)
  * - "minimal": Reduced sections (Tooling, Workspace, Runtime) - used for subagents
  * - "none": Just basic identity line, no sections
+ * - "local": Ultra-compact prompt optimized for local/smaller models (e.g., glm-4.6v-flash)
  */
-export type PromptMode = "full" | "minimal" | "none";
+export type PromptMode = "full" | "minimal" | "none" | "local";
 
 function buildSkillsSection(params: {
   skillsPrompt?: string;
@@ -374,6 +375,49 @@ export function buildAgentSystemPrompt(params: {
   // For "none" mode, return just the basic identity line
   if (promptMode === "none") {
     return "You are a personal assistant running inside OpenClaw.";
+  }
+
+  // "local" mode — ultra-compact prompt for small local models (e.g. Qwen2.5-3B-Instruct-MLX).
+  // Budget: ≤2 500 tokens (~8 000 chars) so the model keeps most of its context free for
+  // conversation history.  Only identity + tool list + workspace + context files.
+  if (promptMode === "local") {
+    const localLines = [
+      "You are a helpful local assistant. Use the available tools to help the user.",
+      "",
+    ];
+
+    // Flat tool list — no per-tool descriptions beyond the name; keeps token count minimal.
+    if (toolLines.length > 0) {
+      localLines.push("Available tools:", ...toolLines, "");
+    }
+
+    // Workspace + time on one line each.
+    localLines.push(`Working directory: ${params.workspaceDir}`);
+    if (userTimezone && params.userTime) {
+      localLines.push(`Current time: ${params.userTime} (${userTimezone})`);
+    }
+
+    // Context files — tight 6 000-char budget; stop as soon as it fills.
+    const contextFiles = params.contextFiles ?? [];
+    if (contextFiles.length > 0) {
+      localLines.push("", "Project context:");
+      let budget = 6000;
+      for (const file of contextFiles) {
+        if (budget <= 0) {
+          break;
+        }
+        const header = `--- ${file.path} ---`;
+        const content = file.content.slice(0, budget);
+        localLines.push(header, content);
+        budget -= header.length + content.length + 2;
+      }
+    }
+
+    if (extraSystemPrompt) {
+      localLines.push("", extraSystemPrompt);
+    }
+
+    return localLines.join("\n");
   }
 
   const lines = [

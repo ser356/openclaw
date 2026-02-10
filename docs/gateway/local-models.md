@@ -142,9 +142,95 @@ vLLM, LiteLLM, OAI-proxy, or custom gateways work if they expose an OpenAI-style
 
 Keep `models.mode: "merge"` so hosted models stay available as fallbacks.
 
+## Compact system prompts for smaller models
+
+For smaller local models (e.g., `glm-4.6v-flash`, quantized models, or models with limited context), OpenClaw's default system prompt may be too large. Use `promptMode: "local"` to get an ultra-compact prompt:
+
+```json5
+{
+  models: {
+    providers: {
+      local: {
+        baseUrl: "http://127.0.0.1:8000/v1",
+        apiKey: "sk-local",
+        api: "openai-responses",
+        models: [
+          {
+            id: "glm-4.6v-flash",
+            name: "GLM 4.6V Flash",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 32000,
+            maxTokens: 4096,
+            promptMode: "local", // Use compact system prompt
+          },
+        ],
+      },
+    },
+  },
+}
+```
+
+The `local` prompt mode includes only:
+
+- Basic assistant identity
+- Available tools list
+- Working directory
+- Current time (when timezone is configured)
+- Project context files (SOUL.md, etc.) — capped at ~6 000 chars
+
+This keeps the system prompt under ~2 500 tokens, leaving the majority of the context window free for conversation history.
+
+### Qwen2.5-3B-Instruct-MLX (no API key, KV-cache quantization)
+
+A complete, zero-key config for running Qwen2.5-3B-Instruct via LM Studio with MLX on Apple Silicon. Set `auth: "none"` so OpenClaw skips all credential resolution. `contextWindow: 32768` matches the model's native limit — LM Studio's KV Cache Quantization (8-bit, accuracy group strategy, threshold 5 000 tokens) keeps actual VRAM usage low without OpenClaw needing to know.
+
+```json5
+{
+  agents: {
+    defaults: {
+      model: { primary: "lmstudio/qwen2.5-3b-instruct" },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      lmstudio: {
+        baseUrl: "http://127.0.0.1:1234/v1",
+        auth: "none", // local server — no API key needed
+        api: "openai-responses",
+        models: [
+          {
+            id: "qwen2.5-3b-instruct",
+            name: "Qwen2.5 3B Instruct (MLX)",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 32768, // model native max; KV quant keeps VRAM in check
+            maxTokens: 4096,
+            promptMode: "local", // ultra-compact system prompt for 3 B param model
+          },
+        ],
+      },
+    },
+  },
+}
+```
+
+**LM Studio settings that match this config** (Load tab → Advanced):
+
+| Setting                           | Value                                           |
+| --------------------------------- | ----------------------------------------------- |
+| Context Length                    | 4096 (ignored when KV Cache Quantization is on) |
+| KV Cache Quantization             | Enabled                                         |
+| KV cache quantization bits        | 8                                               |
+| Group size strategy               | Accuracy                                        |
+| Start quantizing when ctx reaches | 5000                                            |
+
 ## Troubleshooting
 
 - Gateway can reach the proxy? `curl http://127.0.0.1:1234/v1/models`.
-- LM Studio model unloaded? Reload; cold start is a common “hanging” cause.
+- LM Studio model unloaded? Reload; cold start is a common "hanging" cause.
 - Context errors? Lower `contextWindow` or raise your server limit.
 - Safety: local models skip provider-side filters; keep agents narrow and compaction on to limit prompt injection blast radius.
